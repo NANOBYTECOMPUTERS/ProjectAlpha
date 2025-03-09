@@ -151,9 +151,14 @@ class UnifiedApp:
             max_det=MAX_DETECTIONS,
             verbose=False
         )
-        for result in results:
-            detections = sv.Detections.from_ultralytics(result)
-            return self.tracker.update_with_detections(detections) if self.tracker else detections
+        if results:
+            all_detections = []
+            for result in results:
+                detections = sv.Detections.from_ultralytics(result)
+                if self.tracker:
+                    detections = self.tracker.update_with_detections(detections)
+                all_detections.append(detections)
+            return sv.Detections.merge(all_detections)
         return sv.Detections.empty()
 
     def sort_targets(self, frame):
@@ -237,8 +242,10 @@ class UnifiedApp:
                     continue
 
                 self.detections = self.perform_detection(image)
-                target = self.sort_targets(self.detections)
-                self.handle_target(target)
+                if self.detections:
+                    target = self.sort_targets(self.detections)
+                    if target is not None:
+                        self.handle_target(target)
 
                 if cfg.show_window or cfg.show_overlay:
                     self.visualization.queue.put((image, self.detections))

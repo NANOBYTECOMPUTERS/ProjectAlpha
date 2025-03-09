@@ -11,12 +11,10 @@ import cupy as cp
 class MouseMLP(nn.Module):
     def __init__(self, device='cuda'):
         super().__init__()
-        self.fc1 = nn.Linear(10, 512)  # Increased width for more capacity
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 64)
-        self.fc5 = nn.Linear(64, 2)
-        self.dropout = nn.Dropout(0.5)  # Slightly higher dropout for regularization
+        self.fc1 = nn.Linear(10, 256)
+        self.fc2 = nn.Linear(256, 64)
+        self.fc3 = nn.Linear(64, 2)
+        self.dropout = nn.Dropout(0.2)  # Reduced from 0.3, adjustable
         self.device = device
         self.to(device)
 
@@ -24,9 +22,7 @@ class MouseMLP(nn.Module):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = self.dropout(x)
-        x = torch.relu(self.fc3(x))
-        x = torch.relu(self.fc4(x))
-        return self.fc5(x)
+        return self.fc3(x)
 
 class TrainMLP:
     def __init__(self):
@@ -56,8 +52,8 @@ class TrainMLP:
         self.batch_size = cfg.batch_size
         self.load_existing_mlp = cfg.load_existing_mlp
         self.smoothing_factor = cfg.smoothing_factor
-        
-        # Enhanced device selection for quality
+        self.position_history = []
+        self.window_size = 4
         self.device = self.get_torch_device()
         
         self.run_base_dir = "mlp_runs"
@@ -69,11 +65,11 @@ class TrainMLP:
 
         self.mouse_mlp = MouseMLP(device=self.device)
         if self.load_existing_mlp and os.path.exists("mouse_mlp.pth"):
-            self.mouse_mlp.load_state_dict(torch.load("mouse_mlp.pth"))
+            checkpoint = torch.load("mouse_mlp.pth")
+            self.mouse_mlp.load_state_dict(checkpoint['state_dict'])
             print("Loaded existing model from 'mouse_mlp.pth'")
 
     def get_torch_device(self):
-        # Align with alpha.py for compatibility and flexibility
         ai_device = str(cfg.ai_device).strip().lower()
         if cfg.ai_enable_amd and torch.cuda.is_available():
             return torch.device(f'hip:{ai_device}')
@@ -85,7 +81,6 @@ class TrainMLP:
             return torch.device('cuda:0')
 
     def generate_random_bounding_boxes(self, num_boxes=1):
-        # Keep CuPy for fast, high-quality data generation
         w = cp.random.uniform(50, 200, size=num_boxes)
         h = cp.random.uniform(50, 200, size=num_boxes)
         x1 = cp.random.uniform(0, self.scr_w - w, size=num_boxes)
@@ -96,16 +91,33 @@ class TrainMLP:
         return boxes.get().astype(np.float32)
 
     def simulate_target_movement(self, target_x, target_y, prev_x, prev_y):
-        vel_x = np.random.uniform(-self.max_target_speed, self.max_target_speed)  # Bidirectional velocity
-        vel_y = np.random.uniform(-self.max_target_speed, self.max_target_speed)
-        new_x = target_x + vel_x * self.frame_time
-        new_y = target_y + vel_y * self.frame_time
+        vel_x = np.random.uniform(0, self.max_target_speed)
+        vel_y = np.random.uniform(0, self.max_target_speed)
+        noisy_x = target_x + vel_x * self.frame_time
+        noisy_y = target_y + vel_y * self.frame_time
         target_w = min(200, self.scr_w / 4)
         target_h = min(200, self.scr_h / 4)
-        new_x = np.clip(new_x, 0, self.scr_w - target_w)
-        new_y = np.clip(new_y, 0, self.scr_h - target_h)
-        return new_x, new_y
+        noisy_x = np.clip(noisy_x, 0, self.scr_w - target_w)
+        noisy_y = np.clip(noisy_y, 0, self.scr_h - target_h)
 
+        self.position_history.append([noisy_x, noisy_y])
+        if len(self.position_history) > self.window_size:
+            self.position_history.pop(0)
+
+        if len(self.position_history) == self.window_size:
+            t = np.arange(self.window_size)
+            x_vals = np.array([pos[0] for pos in self.position_history])
+            y_vals = np.array([pos[1] for pos in self.position_history])
+            px = np.polyfit(t, x_vals, 2)
+            py = np.polyfit(t, y_vals, 2)
+            next_t = self.window_size
+            pred_x = np.polyval(px, next_t)
+            pred_y = np.polyval(py, next_t)
+            pred_x = np.clip(pred_x, 0, self.scr_w - target_w)
+            pred_y = np.clip(pred_y, 0, self.scr_h - target_h)
+            return pred_x, pred_y
+        return noisy_x, noisy_y
+    
     def calc_movement(self, target_x, target_y, prev_x, prev_y, smoothed_x=None, smoothed_y=None):
         offset_x = target_x - self.center_x
         offset_y = target_y - self.center_y
@@ -167,20 +179,27 @@ class TrainMLP:
                            self.m_spd, self.tbot_box_size, self.m_spd_bst, self.m_bst_thresh])
             targets.append([move_x, move_y])
 
-        # Normalize inputs for better training stability
+        # Normalize inputs and targets
         inputs_np = np.array(inputs, dtype=np.float32)
         input_means = inputs_np.mean(axis=0)
-        input_stds = inputs_np.std(axis=0) + 1e-6  # Avoid division by zero
+        input_stds = inputs_np.std(axis=0) + 1e-6
         inputs_normalized = (inputs_np - input_means) / input_stds
         inputs = torch.tensor(inputs_normalized, dtype=torch.float32).to(self.device)
-        targets = torch.tensor(targets, dtype=torch.float32).to(self.device)
+
+        targets_np = np.array(targets, dtype=np.float32)
+        target_means = targets_np.mean(axis=0)
+        target_stds = targets_np.std(axis=0) + 1e-6
+        targets_normalized = (targets_np - target_means) / target_stds
+        targets = torch.tensor(targets_normalized, dtype=torch.float32).to(self.device)
+
+        print(f"Target means: {target_means}, Target stds: {target_stds}")  # Debug scale
 
         train_size = int(0.8 * num_samples)
         train_inputs, val_inputs = inputs[:train_size], inputs[train_size:]
         train_targets, val_targets = targets[:train_size], targets[train_size:]
 
-        optimizer = torch.optim.AdamW(self.mouse_mlp.parameters(), lr=self.initial_lr, weight_decay=1e-4)  # Added weight decay
-        criterion = nn.MSELoss()
+        optimizer = torch.optim.AdamW(self.mouse_mlp.parameters(), lr=self.initial_lr, weight_decay=1e-2)
+        criterion = nn.SmoothL1Loss()  # Huber loss, adjustable to nn.MSELoss()
         mae_criterion = nn.L1Loss()
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=self.lr_factor, patience=self.lr_patience, min_lr=self.min_lr, verbose=True
@@ -189,20 +208,26 @@ class TrainMLP:
         best_val_loss = float('inf')
         epochs_no_improve = 0
         num_epochs = self.mlp_epochs
+        freeze_schedule = {5: 'fc1'}  # Freeze fc1 after Epoch 5
 
-        train_losses = []
-        val_losses = []
-        train_maes = []
-        val_maes = []
-        learning_rates = []
+        train_losses, val_losses, train_maes, val_maes, learning_rates = [], [], [], [], []
 
         num_batches = (train_size + self.batch_size - 1) // self.batch_size
         for epoch in range(num_epochs):
+            # Corrected warmup to hit initial_lr exactly
             if epoch < self.warmup_epochs:
-                lr = self.min_lr + (self.initial_lr - self.min_lr) * epoch / self.warmup_epochs
+                lr = self.min_lr + (self.initial_lr - self.min_lr) * (epoch + 1) / self.warmup_epochs
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
             current_lr = optimizer.param_groups[0]['lr']
+
+            # Dynamic layer freezing
+            if epoch in freeze_schedule:
+                layer_name = freeze_schedule[epoch]
+                layer = getattr(self.mouse_mlp, layer_name)
+                for param in layer.parameters():
+                    param.requires_grad = False
+                print(f"Freezed {layer_name} at Epoch {epoch + 1}")
 
             self.mouse_mlp.train()
             epoch_train_loss = 0.0
@@ -235,7 +260,9 @@ class TrainMLP:
                 val_mae = mae_criterion(val_outputs, val_targets)
                 max_error = torch.max(torch.abs(val_outputs - val_targets)).item()
 
-            scheduler.step(val_loss)
+            # Adjust LR post-warmup
+            if epoch >= self.warmup_epochs:
+                scheduler.step(val_loss)
 
             train_losses.append(epoch_train_loss)
             val_losses.append(val_loss.item())
@@ -253,7 +280,9 @@ class TrainMLP:
                 torch.save({
                     'state_dict': self.mouse_mlp.state_dict(),
                     'input_means': input_means,
-                    'input_stds': input_stds
+                    'input_stds': input_stds,
+                    'target_means': target_means,
+                    'target_stds': target_stds
                 }, checkpoint_path)
                 print(f"Checkpoint saved to {checkpoint_path}")
 
@@ -262,7 +291,9 @@ class TrainMLP:
                 torch.save({
                     'state_dict': self.mouse_mlp.state_dict(),
                     'input_means': input_means,
-                    'input_stds': input_stds
+                    'input_stds': input_stds,
+                    'target_means': target_means,
+                    'target_stds': target_stds
                 }, "mouse_mlp.pth")
                 print(f"Best model saved to mouse_mlp.pth with Val Loss: {best_val_loss:.4f}")
                 epochs_no_improve = 0
@@ -284,7 +315,7 @@ class TrainMLP:
         plt.plot(train_losses, label='Train Loss')
         plt.plot(val_losses, label='Validation Loss')
         plt.xlabel('Epoch')
-        plt.ylabel('Loss (MSE)')
+        plt.ylabel('Loss (Huber)')
         plt.title('Training and Validation Loss')
         plt.legend()
         plt.grid(True)

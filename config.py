@@ -17,7 +17,9 @@ class Config:
         "CAPTURE_METHODS": "Capture Methods",
         "HOTKEYS": "Hotkeys",
         "MLP": "Neural Network",
-        "MODEL_EXPORT": "Model Export"
+        "MODEL_EXPORT": "Model Export",
+        "Train": "Train",
+        "Finetune": "Finetune"
     }
 
     def __init__(self):
@@ -448,4 +450,117 @@ class Config:
     @property
     def export_conf(self):
         return float(self.config["Model Export"]["conf"])
+    
+    @property
+    def data_yaml(self):
+        return self.config[self.CONFIG_SECTIONS["Train"]]["data_yaml"]
+
+    @property
+    def device(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["device"])
+
+    @property
+    def train_size(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["train_size"])
+
+    @property
+    def train_base_dir(self):
+        return self.config[self.CONFIG_SECTIONS["Train"]]["train_base_dir"]
+
+    @property
+    def train_epochs(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["train_epochs"])
+
+    @property
+    def train_batch(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["train_batch"])
+
+    @property
+    def train_lr0(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_lr0"])
+
+    @property
+    def train_lrf(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_lrf"])
+
+    @property
+    def train_freeze(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["train_freeze"])
+
+    @property
+    def train_box(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_box"])
+
+    @property
+    def train_iou(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_iou"])
+
+    @property
+    def train_patience(self):
+        return int(self.config[self.CONFIG_SECTIONS["Train"]]["train_patience"])
+
+    @property
+    def train_weight_decay(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_weight_decay"])
+
+    @property
+    def train_dropout(self):
+        return float(self.config[self.CONFIG_SECTIONS["Train"]]["train_dropout"])
+
+    @property
+    def finetune_pretrained_model(self):
+        return self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_pretrained_model"]
+    
+    @property
+    def finetune_data_yaml(self):
+        return self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_data_yaml"]
+
+    @property
+    def finetune_size(self):
+        return int(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_size"])
+
+    @property
+    def finetune_base_dir(self):
+        return self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_base_dir"]
+
+    @property
+    def finetune_epochs(self):
+        return int(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_epochs"])
+
+    @property
+    def finetune_batch(self):
+        return int(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_batch"])
+
+    @property
+    def finetune_lr0(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_lr0"])
+
+    @property
+    def finetune_lrf(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_lrf"])
+
+    @property
+    def finetune_freeze(self):
+        return int(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_freeze"])
+
+    @property
+    def finetune_box(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_box"])
+
+    @property
+    def finetune_iou(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_iou"])
+
+    @property
+    def finetune_patience(self):
+        return int(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_patience"])
+
+    @property
+    def finetune_weight_decay(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_weight_decay"])
+
+    @property
+    def finetune_dropout(self):
+        return float(self.config[self.CONFIG_SECTIONS["Finetune"]]["finetune_dropout"])
+
 cfg = Config()

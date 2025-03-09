@@ -1,5 +1,3 @@
-# "gui.py" ---
-
 import tkinter as tk
 import time
 import os
@@ -77,7 +75,6 @@ class GUI:
             
             # Add background image if available
             if self.bg_photo:
-                # Initial placement of background image - will be properly scaled by _resize_background
                 canvas.create_image(0, 0, anchor='nw', image=self.bg_photo, tags="bg")
                 canvas.lower("bg")
             
@@ -105,7 +102,7 @@ class GUI:
                 self.widgets[(section, key)] = widget
                 row += 1
         
-        # Button frame at the bottom
+        # Button frame at the bottom (existing buttons)
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(side='bottom', fill='x', pady=10)
         
@@ -127,6 +124,16 @@ class GUI:
         close_btn = ttk.Button(button_frame, text="Close", command=self.close, style="Custom.TButton")
         close_btn.pack(side='left', padx=5)
         
+        # Bottom-right YOLO button section
+        yolo_frame = ttk.Frame(main_frame)
+        yolo_frame.place(relx=0.85, rely=0.95, anchor='se')  # Bottom-right corner
+        
+        yolo_new_btn = ttk.Button(yolo_frame, text="YOLO_new", command=self.run_yolo_new, style="Custom.TButton")
+        yolo_new_btn.pack(side='left', padx=5, pady=5)
+        
+        yolo_finetune_btn = ttk.Button(yolo_frame, text="Yolo_finetune", command=self.run_yolo_finetune, style="Custom.TButton")
+        yolo_finetune_btn.pack(side='left', padx=5, pady=5)
+        
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _resize_background(self, section, width, height):
@@ -134,28 +141,22 @@ class GUI:
             return
         canvas = self.canvases[section]
         
-        # Calculate proper scaling to fit while maintaining aspect ratio
         original_width, original_height = self.bg_image.size
         width_ratio = width / original_width
         height_ratio = height / original_height
         
-        # Use the smaller ratio to ensure the image fits entirely
         scale_ratio = min(width_ratio, height_ratio)
         new_width = int(original_width * scale_ratio)
         new_height = int(original_height * scale_ratio)
         
-        # Calculate position to center the image
         x_position = (width - new_width) // 2
         y_position = (height - new_height) // 2
         
-        # Resize and create new photo image
         resized_image = self.bg_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
         resized_photo = ImageTk.PhotoImage(resized_image)
         
-        # Store the photo to prevent garbage collection
         canvas.bg_image = resized_photo
         
-        # Delete existing background and create new one
         canvas.delete("bg")
         canvas.create_image(x_position, y_position, anchor='nw', image=resized_photo, tags="bg")
         canvas.lower("bg")
@@ -191,7 +192,6 @@ class GUI:
             if not os.path.exists(run_script):
                 log_error(f"app.py not found at {run_script}")
                 return
-            # Run app.py in a new process
             subprocess.Popen(["python", run_script], cwd=directory)
             print("Started app.py")
         except Exception as e:
@@ -199,7 +199,7 @@ class GUI:
 
     def export_model(self):
         try:
-            from ultralytics import YOLO  # Lazy import here
+            from ultralytics import YOLO
             model_path = os.path.join(os.path.dirname(__file__), "models", cfg.export_model)
             if not os.path.exists(model_path):
                 log_error(f"Model file not found: {model_path}")
@@ -235,11 +235,36 @@ class GUI:
             if not os.path.exists(train_script):
                 log_error(f"train.py not found at {train_script}")
                 return
-            # Run train.py in a new process
             subprocess.Popen(["python", train_script], cwd=directory)
             print("Started train.py")
         except Exception as e:
             log_error(f"Error starting train.py: {e}")
+
+    def run_yolo_new(self):
+        """Run the YOLO_new training script (train_yolo_new.py)."""
+        try:
+            directory = os.path.dirname(os.path.abspath(__file__))
+            train_script = os.path.join(directory, "train_yolo_new.py")
+            if not os.path.exists(train_script):
+                log_error(f"train_yolo_new.py not found at {train_script}")
+                return
+            subprocess.Popen(["python", train_script], cwd=directory)
+            print("Started train_yolo_new.py")
+        except Exception as e:
+            log_error(f"Error starting train_yolo_new.py: {e}")
+
+    def run_yolo_finetune(self):
+        """Run the Yolo_finetune script (finetune_yolo_existing.py)."""
+        try:
+            directory = os.path.dirname(os.path.abspath(__file__))
+            finetune_script = os.path.join(directory, "finetune_yolo_existing.py")
+            if not os.path.exists(finetune_script):
+                log_error(f"finetune_yolo_existing.py not found at {finetune_script}")
+                return
+            subprocess.Popen(["python", finetune_script], cwd=directory)
+            print("Started finetune_yolo_existing.py")
+        except Exception as e:
+            log_error(f"Error starting finetune_yolo_existing.py: {e}")
 
     def close(self):
         if self.root and self.root.winfo_exists():

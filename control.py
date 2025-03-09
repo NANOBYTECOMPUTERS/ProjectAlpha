@@ -1,5 +1,3 @@
-#control.py ---
-
 import os
 import time
 import win32api
@@ -8,20 +6,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 import cupy as cp
-from config import cfg  # Updated to new config module
-from input import Buttons  # Updated to new input module
+from config import cfg
+from input import Buttons
 from utils import log_error
-
 
 class MouseMLP(nn.Module):
     def __init__(self, device='cuda'):
         super().__init__()
-        self.fc1 = nn.Linear(10, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 64)
-        self.fc5 = nn.Linear(64, 2)
-        self.dropout = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(10, 256)
+        self.fc2 = nn.Linear(256, 64)
+        self.fc3 = nn.Linear(64, 2)
+        self.dropout = nn.Dropout(0.3)
         self.device = device
         self.to(device)
 
@@ -29,9 +24,7 @@ class MouseMLP(nn.Module):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = self.dropout(x)
-        x = torch.relu(self.fc3(x))
-        x = torch.relu(self.fc4(x))
-        return self.fc5(x)
+        return self.fc3(x)
 
 class Controller:
     def __init__(self):
@@ -55,19 +48,22 @@ class Controller:
         self.prev_y = None
         self.prev_time = None
         self.tbot_box = False
+        self.smoothed_move = cp.zeros(2, dtype=cp.float32)  # Added for smoothing
 
         self.hotkey_codes = [Buttons.KEY_CODES.get(key.strip()) for key in cfg.hotkey_targeting if Buttons.KEY_CODES.get(key.strip()) is not None]
         self.triggerbot_hotkey_code = Buttons.KEY_CODES.get(cfg.hotkey_triggerbot, win32con.VK_RBUTTON)
 
         if self.use_neural_net:
             self.device = 'cuda' if torch.cuda.is_available() and cfg.ai_device != 'cpu' else 'cpu'
-            self.mouse_mlp = MouseMLP(device=self.device)  # Updated architecture
+            self.mouse_mlp = MouseMLP(device=self.device)
             if os.path.exists("mouse_mlp.pth"):
                 checkpoint = torch.load("mouse_mlp.pth")
                 self.mouse_mlp.load_state_dict(checkpoint['state_dict'])
                 self.input_means = torch.tensor(checkpoint['input_means'], device=self.device)
                 self.input_stds = torch.tensor(checkpoint['input_stds'], device=self.device)
-                log_error("Loaded trained MouseMLP from 'mouse_mlp.pth' with normalization")
+                self.target_means = torch.tensor(checkpoint['target_means'], device=self.device)  # Added
+                self.target_stds = torch.tensor(checkpoint['target_stds'], device=self.device)    # Added
+                log_error("Loaded trained MouseMLP from 'mouse_mlp.pth' with input and target normalization")
             self.mouse_mlp.eval()
             self.input_buffer = torch.zeros(10, dtype=torch.float32, device=self.device)
 
@@ -156,17 +152,23 @@ class Controller:
         self.input_buffer[:] = torch.tensor(inputs, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             normalized_inputs = (self.input_buffer - self.input_means) / self.input_stds
-            move = self.mouse_mlp(normalized_inputs)
+            move_normalized = self.mouse_mlp(normalized_inputs)
+            move = move_normalized * self.target_stds + self.target_means  # Denormalize
         return float(move[0]), float(move[1])
 
     def move_and_shoot(self, move_x, move_y, shooting_state):
+        # Apply smoothing
+        alpha = self.smoothing_factor
+        self.smoothed_move = alpha * cp.array([move_x, move_y]) + (1 - alpha) * self.smoothed_move
+        smooth_x, smooth_y = float(self.smoothed_move[0].get()), float(self.smoothed_move[1].get())
+
         triggerbot_hotkey_pressed = not cfg.triggerbot_hotkey or (win32api.GetAsyncKeyState(self.triggerbot_hotkey_code) & 0x8000)
         should_move = cfg.mouse_auto_aim or (shooting_state and triggerbot_hotkey_pressed)
         should_shoot = (cfg.triggerbot and self.tbot_box and triggerbot_hotkey_pressed) or (cfg.mouse_auto_aim and self.tbot_box)
 
         if should_move:
             try:
-                self.move_func(move_x, move_y)
+                self.move_func(smooth_x, smooth_y)
             except Exception as e:
                 log_error(f"Error in move_mouse: {e}")
 

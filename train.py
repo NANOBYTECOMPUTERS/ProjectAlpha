@@ -202,7 +202,7 @@ class TrainMLP:
         criterion = nn.SmoothL1Loss()  # Huber loss, adjustable to nn.MSELoss()
         mae_criterion = nn.L1Loss()
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=self.lr_factor, patience=self.lr_patience, min_lr=self.min_lr, verbose=True
+            optimizer, mode='min', factor=self.lr_factor, patience=self.lr_patience, min_lr=self.min_lr
         )
 
         best_val_loss = float('inf')

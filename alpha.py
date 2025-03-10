@@ -63,6 +63,19 @@ class UnifiedApp:
 
         # Detection initialization
         self.model = YOLO(f"models/{cfg.ai_model_name}", task="detect")
+        # Get class names and map "player" and "head" to their IDs
+        self.class_names = self.model.names  # Dictionary mapping ID to name, e.g., {0: 'person', 1: 'player', 8: 'head'}
+        self.target_classes = {}
+        for class_id, name in self.class_names.items():
+            if name.lower() == "player":
+                self.target_classes["player"] = class_id
+            elif name.lower() == "head":
+                self.target_classes["head"] = class_id
+        log_error(f"Model class names: {self.class_names}")
+        log_error(f"Target class IDs: {self.target_classes}")
+        if "player" not in self.target_classes or "head" not in self.target_classes:
+            raise ValueError("Model does not contain 'player' and/or 'head' classes as expected.")
+
         self.tracker = sv.ByteTrack() if not cfg.ai_disable_tracker else None
         self.current_locked_target_id = None
         self.previous_target = None
@@ -155,6 +168,15 @@ class UnifiedApp:
             all_detections = []
             for result in results:
                 detections = sv.Detections.from_ultralytics(result)
+                # Filter detections to only include "player" and "head" based on mapped IDs
+                target_ids = [self.target_classes["player"], self.target_classes["head"]]
+                mask = np.isin(detections.class_id, target_ids)
+                detections = sv.Detections(
+                    xyxy=detections.xyxy[mask],
+                    confidence=detections.confidence[mask] if detections.confidence is not None else None,
+                    class_id=detections.class_id[mask],
+                    tracker_id=detections.tracker_id[mask] if detections.tracker_id is not None else None
+                )
                 if self.tracker:
                     detections = self.tracker.update_with_detections(detections)
                 all_detections.append(detections)
@@ -169,40 +191,52 @@ class UnifiedApp:
         self.boxes_array[:num_detections] = frame.xyxy[:num_detections]
         self.ids_array[:num_detections] = frame.tracker_id[:num_detections] if frame.tracker_id is not None else np.zeros(num_detections, dtype=np.int32)
         self.confidence_array[:num_detections] = frame.confidence[:num_detections] if frame.confidence is not None else np.ones(num_detections, dtype=np.float32)
+        class_ids = frame.class_id[:num_detections]
 
         if num_detections == 0:
             return None
 
+        # Check for locked target
         if self.current_locked_target_id is not None:
             locked_idx = self._get_locked_index(self.ids_array[:num_detections])
             if locked_idx != -1:
                 box = frame.xyxy[locked_idx]
-                target = Target(*box, 0, self.ids_array[locked_idx])
+                cls = class_ids[locked_idx]
+                target = Target(*box, cls, self.ids_array[locked_idx])
                 current_pos = np.array([target.center_x, target.center_y])
                 prev_pos = np.array([self.previous_target.center_x, self.previous_target.center_y]) if self.previous_target else current_pos
                 if np.linalg.norm(current_pos - prev_pos) <= self.switch_threshold:
                     return target
 
-        return self._find_nearest_target_np(self.boxes_array[:num_detections], 
-                                            self.ids_array[:num_detections], 
-                                            self.confidence_array[:num_detections], 
-                                            num_detections)
+        # Prioritize "head" over "player"
+        head_id = self.target_classes["head"]
+        player_id = self.target_classes["player"]
+        head_mask = class_ids == head_id
+        if np.any(head_mask):
+            # If heads are detected, select the nearest head
+            head_indices = np.where(head_mask)[0]
+            self.cx_array[:len(head_indices)] = (self.boxes_array[head_indices, 0] + self.boxes_array[head_indices, 2]) / 2
+            self.cy_array[:len(head_indices)] = (self.boxes_array[head_indices, 1] + self.boxes_array[head_indices, 3]) / 2
+            dx = self.cx_array[:len(head_indices)] - self.center_np[0]
+            dy = self.cy_array[:len(head_indices)] - self.center_np[1]
+            self.distance_sq_array[:len(head_indices)] = dx * dx + dy * dy / (self.confidence_array[head_indices] + 1e-6)
+            best_idx = head_indices[np.argmin(self.distance_sq_array[:len(head_indices)])]
+        else:
+            # If no heads, fall back to nearest player
+            player_mask = class_ids == player_id
+            if not np.any(player_mask):
+                return None
+            player_indices = np.where(player_mask)[0]
+            self.cx_array[:len(player_indices)] = (self.boxes_array[player_indices, 0] + self.boxes_array[player_indices, 2]) / 2
+            self.cy_array[:len(player_indices)] = (self.boxes_array[player_indices, 1] + self.boxes_array[player_indices, 3]) / 2
+            dx = self.cx_array[:len(player_indices)] - self.center_np[0]
+            dy = self.cy_array[:len(player_indices)] - self.center_np[1]
+            self.distance_sq_array[:len(player_indices)] = dx * dx + dy * dy / (self.confidence_array[player_indices] + 1e-6)
+            best_idx = player_indices[np.argmin(self.distance_sq_array[:len(player_indices)])]
 
-    def _find_nearest_target_np(self, boxes_array, ids_array, confidence_array, num_detections):
-        # Pre-allocated NumPy arrays for calculations
-        self.cx_array[:num_detections] = (boxes_array[:num_detections, 0] + boxes_array[:num_detections, 2]) / 2
-        self.cy_array[:num_detections] = (boxes_array[:num_detections, 1] + boxes_array[:num_detections, 3]) / 2
-        dx = self.cx_array[:num_detections] - self.center_np[0]
-        dy = self.cy_array[:num_detections] - self.center_np[1]
-        self.distance_sq_array[:num_detections] = dx * dx + dy * dy / (confidence_array[:num_detections] + 1e-6)
-
-        best_idx = np.argmin(self.distance_sq_array[:num_detections])
-        if self.distance_sq_array[best_idx] == float('inf'):
-            return None
-
-        target_info = (boxes_array[best_idx, 0], boxes_array[best_idx, 1], 
-                       boxes_array[best_idx, 2], boxes_array[best_idx, 3], 
-                       0, ids_array[best_idx])
+        target_info = (self.boxes_array[best_idx, 0], self.boxes_array[best_idx, 1], 
+                       self.boxes_array[best_idx, 2], self.boxes_array[best_idx, 3], 
+                       class_ids[best_idx], self.ids_array[best_idx])
         return Target(*target_info)
 
     def _get_locked_index(self, tracker_ids):

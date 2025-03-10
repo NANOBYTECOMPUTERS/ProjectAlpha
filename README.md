@@ -1,6 +1,8 @@
 
 # ProjectAlpha is an open souce development as a precursor to ProjectBravo which intends to leverage AI to grant the ability to those whom have a disability which has either lost the ability to or has never been able to play games.
 
+# To donate and keep the project going click the sponsor tab at the top or look at the funding.yaml
+
 # Chatroom https://discord.gg/8S5h3Un4
 
 # Requirements

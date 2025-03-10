@@ -4,8 +4,6 @@ import torch
 from logger import log_error, setup_logging
 from config import cfg
 
-
-
 def cleanup_resources(visualization=None):
     try:
         if visualization and visualization.running:

@@ -48,7 +48,7 @@ class Controller:
         self.prev_y = None
         self.prev_time = None
         self.tbot_box = False
-        self.smoothed_move = cp.zeros(2, dtype=cp.float32)  # Added for smoothing
+        self.smoothed_move = cp.zeros(2, dtype=cp.float32)
 
         self.hotkey_codes = [Buttons.KEY_CODES.get(key.strip()) for key in cfg.hotkey_targeting if Buttons.KEY_CODES.get(key.strip()) is not None]
         self.triggerbot_hotkey_code = Buttons.KEY_CODES.get(cfg.hotkey_triggerbot, win32con.VK_RBUTTON)
@@ -61,9 +61,9 @@ class Controller:
                 self.mouse_mlp.load_state_dict(checkpoint['state_dict'])
                 self.input_means = torch.tensor(checkpoint['input_means'], device=self.device)
                 self.input_stds = torch.tensor(checkpoint['input_stds'], device=self.device)
-                self.target_means = torch.tensor(checkpoint['target_means'], device=self.device)  # Added
-                self.target_stds = torch.tensor(checkpoint['target_stds'], device=self.device)    # Added
-                log_error("Loaded trained MouseMLP from 'mouse_mlp.pth' with input and target normalization")
+                self.target_means = torch.tensor(checkpoint['target_means'], device=self.device)
+                self.target_stds = torch.tensor(checkpoint['target_stds'], device=self.device)
+                log_error("Loaded trained MouseMLP from 'mouse_mlp.pth' with normalization")
             self.mouse_mlp.eval()
             self.input_buffer = torch.zeros(10, dtype=torch.float32, device=self.device)
 
@@ -113,7 +113,7 @@ class Controller:
         self.move_and_shoot(move_x, move_y, shooting_state)
 
     def predict_next_position(self, target_x, target_y, current_time):
-        if self.prev_time is None:
+        if self.prev_time is None or cfg.disable_prediction:
             self.prev_x, self.prev_y = target_x, target_y
             self.prev_time = current_time
             return target_x, target_y
@@ -126,9 +126,8 @@ class Controller:
 
         vel_x = (target_x - self.prev_x) / dt
         vel_y = (target_y - self.prev_y) / dt
-        pred_x = target_x + vel_x * self.frame_time
-        pred_y = target_y + vel_y * self.frame_time
-
+        pred_x = target_x + vel_x * self.frame_time * 0.5  # testing reduction to prediction factor to add stability
+        pred_y = target_y + vel_y * self.frame_time * 0.5
         self.prev_x, self.prev_y = target_x, target_y
         self.prev_time = current_time
         return pred_x, pred_y
@@ -142,23 +141,21 @@ class Controller:
         return float(self.move_buffer[0].get()), float(self.move_buffer[1].get())
 
     def calc_movement_neural(self, target_x, target_y, target_w, target_h):
-        target_y_adj = target_y + cfg.body_y_offset * target_h
         inputs = [
-            target_x, target_y_adj, target_w, target_h,
+            target_x, target_y, target_w, target_h,
             self.prev_x if self.prev_x is not None else target_x,
-            self.prev_y if self.prev_y is not None else target_y_adj,
+            self.prev_y if self.prev_y is not None else target_y,
             self.m_spd, self.tbot_box_size, self.m_spd_bst, self.m_bst_thresh
         ]
         self.input_buffer[:] = torch.tensor(inputs, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             normalized_inputs = (self.input_buffer - self.input_means) / self.input_stds
             move_normalized = self.mouse_mlp(normalized_inputs)
-            move = move_normalized * self.target_stds + self.target_means  # Denormalize
+            move = move_normalized * self.target_stds + self.target_means
         return float(move[0]), float(move[1])
 
     def move_and_shoot(self, move_x, move_y, shooting_state):
-        # Apply smoothing
-        alpha = self.smoothing_factor
+        alpha = min(self.smoothing_factor, 0.9)  # testing cap on for smoothing to avoid lag
         self.smoothed_move = alpha * cp.array([move_x, move_y]) + (1 - alpha) * self.smoothed_move
         smooth_x, smooth_y = float(self.smoothed_move[0].get()), float(self.smoothed_move[1].get())
 

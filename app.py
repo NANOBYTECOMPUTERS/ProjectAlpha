@@ -8,9 +8,8 @@ def main():
     setup_logging()
     log_error("Starting application from app.py")
     
-    # Initialize the unified app from alpha.py
     # Set profile_duration to None for normal operation, or a number (seconds) for profiling
-    app = UnifiedApp(profile_duration=None)  # Change to 30 or another value for profiling
+    app = UnifiedApp(profile_duration=None)  # Change value for profiling
     cfg.set_restart_callback(app.restart)
     
     try:

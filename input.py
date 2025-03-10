@@ -76,16 +76,13 @@ class InputWatcher(threading.Thread):
             time.sleep(0.01)
 
     def get_shooting_state(self):
-        """Check if any targeting hotkey is pressed."""
         return any(win32api.GetAsyncKeyState(code) & 0x8000 for code in self.hotkey_targeting)
 
     def get_triggerbot_state(self):
-        """Check if triggerbot hotkey is pressed."""
         return win32api.GetAsyncKeyState(self.hotkey_triggerbot) & 0x8000
 
     def quit(self):
         self.running = False
         if threading.current_thread() != self:
-            # Only try to join if not called from the thread itself
             self.join(timeout=1.0)
         log_error("InputWatcher stopped")

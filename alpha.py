@@ -23,7 +23,7 @@ from logger import setup_logging, log_error
 MAX_DETECTIONS = 100
 
 class Target:
-    def __init__(self, x1, y1, x2, y2, cls, id=None):
+    def __init__(self, x1, y1, x2, y2, cls, id=None, player_class_id=None, head_class_id=None):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
@@ -35,7 +35,10 @@ class Target:
         self.center_x = (x1 + x2) / 2
         self.center_y = (y1 + y2) / 2
         self.target_x = self.center_x
-        self.target_y = self.center_y + self.h * (cfg.body_y_offset - 0.5)
+        if cls == player_class_id:
+            self.target_y = self.center_y + self.h * (cfg.body_y_offset - 0.5)
+        else:
+            self.target_y = self.center_y
 
 class UnifiedApp:
     def __init__(self, profile_duration=None):
@@ -48,8 +51,7 @@ class UnifiedApp:
             atexit.register(self.save_profile)
             self.start_time = time.time()
             self.frame_count = 0
-
-        # Capture initialization
+        # Capture
         self.daemon = True
         self.frame_queue = queue.Queue(maxsize=1)
         self._stop_event = threading.Event()
@@ -60,22 +62,19 @@ class UnifiedApp:
         self.prev_dims = (cfg.detection_window_width, cfg.detection_window_height, cfg.bettercam_capture_fps)
         self.bc = None
         self.setup_bettercam()
-
-        # Detection initialization
+        # Detection
         self.model = YOLO(f"models/{cfg.ai_model_name}", task="detect")
-        # Get class names and map "player" and "head" to their IDs
-        self.class_names = self.model.names  # Dictionary mapping ID to name, e.g., {0: 'person', 1: 'player', 8: 'head'}
+        self.class_names = self.model.names
         self.target_classes = {}
         for class_id, name in self.class_names.items():
             if name.lower() == "player":
                 self.target_classes["player"] = class_id
             elif name.lower() == "head":
                 self.target_classes["head"] = class_id
-        log_error(f"Model class names: {self.class_names}")
-        log_error(f"Target class IDs: {self.target_classes}")
         if "player" not in self.target_classes or "head" not in self.target_classes:
             raise ValueError("Model does not contain 'player' and/or 'head' classes as expected.")
-
+        self.player_class_id = self.target_classes["player"]
+        self.head_class_id = self.target_classes["head"]
         self.tracker = sv.ByteTrack() if not cfg.ai_disable_tracker else None
         self.current_locked_target_id = None
         self.previous_target = None
@@ -90,15 +89,13 @@ class UnifiedApp:
         self.cy_array = np.zeros(MAX_DETECTIONS, dtype=np.float32)
         self.distance_sq_array = np.zeros(MAX_DETECTIONS, dtype=np.float32)
         self.detections = sv.Detections.empty()
-
-        # App components
+        #App
         self.visualization = Visualization()
         self.input = InputWatcher(self)
         self.controller = Controller()
         self.capture_thread = threading.Thread(target=self.capture_loop, daemon=True)
         self.capture_thread.start()
 
-        # Utils integration
         self._torch_device_cache = None
         log_error("UnifiedApp initialization completed")
 
@@ -168,7 +165,6 @@ class UnifiedApp:
             all_detections = []
             for result in results:
                 detections = sv.Detections.from_ultralytics(result)
-                # Filter detections to only include "player" and "head" based on mapped IDs
                 target_ids = [self.target_classes["player"], self.target_classes["head"]]
                 mask = np.isin(detections.class_id, target_ids)
                 detections = sv.Detections(
@@ -196,24 +192,21 @@ class UnifiedApp:
         if num_detections == 0:
             return None
 
-        # Check for locked target
         if self.current_locked_target_id is not None:
             locked_idx = self._get_locked_index(self.ids_array[:num_detections])
             if locked_idx != -1:
                 box = frame.xyxy[locked_idx]
                 cls = class_ids[locked_idx]
-                target = Target(*box, cls, self.ids_array[locked_idx])
+                target = Target(*box, cls, self.ids_array[locked_idx], self.player_class_id, self.head_class_id)
                 current_pos = np.array([target.center_x, target.center_y])
                 prev_pos = np.array([self.previous_target.center_x, self.previous_target.center_y]) if self.previous_target else current_pos
                 if np.linalg.norm(current_pos - prev_pos) <= self.switch_threshold:
                     return target
 
-        # Prioritize "head" over "player"
         head_id = self.target_classes["head"]
         player_id = self.target_classes["player"]
         head_mask = class_ids == head_id
         if np.any(head_mask):
-            # If heads are detected, select the nearest head
             head_indices = np.where(head_mask)[0]
             self.cx_array[:len(head_indices)] = (self.boxes_array[head_indices, 0] + self.boxes_array[head_indices, 2]) / 2
             self.cy_array[:len(head_indices)] = (self.boxes_array[head_indices, 1] + self.boxes_array[head_indices, 3]) / 2
@@ -222,7 +215,6 @@ class UnifiedApp:
             self.distance_sq_array[:len(head_indices)] = dx * dx + dy * dy / (self.confidence_array[head_indices] + 1e-6)
             best_idx = head_indices[np.argmin(self.distance_sq_array[:len(head_indices)])]
         else:
-            # If no heads, fall back to nearest player
             player_mask = class_ids == player_id
             if not np.any(player_mask):
                 return None
@@ -237,7 +229,7 @@ class UnifiedApp:
         target_info = (self.boxes_array[best_idx, 0], self.boxes_array[best_idx, 1], 
                        self.boxes_array[best_idx, 2], self.boxes_array[best_idx, 3], 
                        class_ids[best_idx], self.ids_array[best_idx])
-        return Target(*target_info)
+        return Target(*target_info, player_class_id=self.player_class_id, head_class_id=self.head_class_id)
 
     def _get_locked_index(self, tracker_ids):
         try:

@@ -1,15 +1,13 @@
 from ultralytics import YOLO
 import os
-from config import cfg  # Import your config module
-
-# Configuration from cfg
+from config import cfg
+# Configuration
 PRETRAINED_MODEL = cfg.finetune_pretrained_model  # Pretrained model path from config
 DATA_YAML = cfg.finetune_data_yaml  # Path to data.yaml from config
 DEVICE = cfg.device  # GPU device from config
 IMGSZ = cfg.finetune_size  # Fine-tuning image size from config
 BASE_DIR = cfg.finetune_base_dir  # Base directory for fine-tuning runs from config
-
-# Define fine-tuning stages with cfg values
+# Define fine-tuning stages
 FINETUNE_STAGES = [
     # Stage 1: Initial refinement with moderate LR
     {
@@ -31,8 +29,8 @@ FINETUNE_STAGES = [
         "lr0": cfg.finetune_lr0 / 5,  # Reduced LR
         "lrf": cfg.finetune_lrf,
         "freeze": cfg.finetune_freeze // 2,  # Less freezing
-        "box": cfg.finetune_box + 2.0,  # Increase box precision
-        "iou": cfg.finetune_iou + 0.05,  # Stricter IoU
+        "box": cfg.finetune_box + 0.5,  # Increase box precision
+        "iou": cfg.finetune_iou + 0.025,  # Stricter IoU
         "patience": cfg.finetune_patience,
         "weight_decay": cfg.finetune_weight_decay,
         "dropout": cfg.finetune_dropout,
@@ -41,22 +39,20 @@ FINETUNE_STAGES = [
     {
         "epochs": cfg.finetune_epochs // 3,  # Shorter polish stage
         "batch": cfg.finetune_batch,
-        "lr0": cfg.finetune_lr0 / 10,  # Very low LR
-        "lrf": cfg.finetune_lrf / 2,
+        "lr0": cfg.finetune_lr0 / 7.5,  # Very low LR
+        "lrf": cfg.finetune_lrf / 1.5,
         "freeze": 0,  # Full model
-        "box": cfg.finetune_box + 4.0,  # Max box focus
-        "iou": cfg.finetune_iou + 0.1,  # Very strict IoU
+        "box": cfg.finetune_box + 1.0,  # Max box focus
+        "iou": cfg.finetune_iou + 0.05,  # Very strict IoU
         "patience": cfg.finetune_patience // 2,
-        "weight_decay": cfg.finetune_weight_decay * 2,  # Stronger regularization
-        "dropout": cfg.finetune_dropout + 0.1,  # Add dropout
+        "weight_decay": cfg.finetune_weight_decay * 1.5,  # Stronger regularization
+        "dropout": cfg.finetune_dropout + 0.05,  # Add dropout
     }
 ]
 
 def finetune_stage(model_path, stage_idx, params):
-    """Fine-tune a single stage and return the best model path."""
     run_name = f"finetune_stage_{stage_idx}"
     model = YOLO(model_path)
-    
     # Fine-tune with specified parameters
     results = model.train(
         data=DATA_YAML,
@@ -79,7 +75,6 @@ def finetune_stage(model_path, stage_idx, params):
         save=True,
         verbose=True
     )
-    
     # Best model path after fine-tuning
     best_model_path = os.path.join(BASE_DIR, run_name, "weights", "best.pt")
     return best_model_path
@@ -92,7 +87,7 @@ def main():
         print(f"\nStarting Stage {idx} with {current_model}")
         current_model = finetune_stage(current_model, idx, params)
         print(f"Stage {idx} completed. Best model saved at: {current_model}")
-    
+        
     # Final model export
     final_model = YOLO(current_model)
     export_path = os.path.join(BASE_DIR, "finetuned-best.pt")

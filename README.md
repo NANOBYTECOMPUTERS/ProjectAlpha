@@ -1,6 +1,8 @@
 
 # ProjectAlpha is an open souce development as a precursor to ProjectBravo which intends to leverage AI to grant the ability to those whom have a disability which has either lost the ability to or has never been able to play games.
 
+# Chatroom https://discord.gg/8S5h3Un4
+
 # Requirements
 
 # CUDA 12.8 - https://developer.download.nvidia.com/compute/cuda/12.8.1/network_installers/cuda_12.8.1_windows_network.exe

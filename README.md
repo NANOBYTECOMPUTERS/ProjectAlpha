@@ -6,7 +6,7 @@
 # Chatroom https://discord.gg/8S5h3Un4
 
 # Requirements
-
+# Python 3.11
 # CUDA 12.8 - https://developer.download.nvidia.com/compute/cuda/12.8.1/network_installers/cuda_12.8.1_windows_network.exe
 
 # PYTORCH - pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128

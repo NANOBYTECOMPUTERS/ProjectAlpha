@@ -18,7 +18,7 @@
 
 # Functionality
 
-# Run program - The program may be deployed bu running gui.py or by running app.py
+# Run program - The program may be deployed by running gui.py or by running app.py
 
 # Settings - settings may be edited via the config.ini or from the GUI (*reccomended) than select the save button at the bottom
 

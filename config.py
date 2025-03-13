@@ -127,6 +127,14 @@ class Config:
     @property
     def body_y_offset(self):
         return float(self.config[self.CONFIG_SECTIONS["AIM"]]["body_y_offset"])
+    
+    @property
+    def head_y_offset(self):
+        return float(self.config[self.CONFIG_SECTIONS["AIM"]]["head_y_offset"])
+    
+    @property
+    def aim_target_scale(self):
+        return float(self.config[self.CONFIG_SECTIONS["AIM"]]["aim_target_scale"])
 
     @property
     def hideout_targets(self):
@@ -454,6 +462,10 @@ class Config:
     @property
     def data_yaml(self):
         return self.config[self.CONFIG_SECTIONS["Train"]]["data_yaml"]
+    
+    @property
+    def annotate_model_name(self):
+        return self.config[self.CONFIG_SECTIONS["Train"]]["annotate_model_name"]
 
     @property
     def device(self):

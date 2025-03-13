@@ -97,6 +97,8 @@ class GUI:
         yolo_new_btn.pack(side='left', padx=5, pady=5)
         yolo_finetune_btn = ttk.Button(yolo_frame, text="Yolo_finetune", command=self.run_yolo_finetune, style="Custom.TButton")
         yolo_finetune_btn.pack(side='left', padx=5, pady=5)
+        annotate_btn = ttk.Button(yolo_frame, text="Annotate", command=self.run_annotate, style="Custom.TButton")
+        annotate_btn.pack(side='left', padx=5, pady=5)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _resize_background(self, section, width, height):
@@ -217,6 +219,18 @@ class GUI:
             print("Started finetune_yolo_existing.py")
         except Exception as e:
             log_error(f"Error starting finetune_yolo_existing.py: {e}")
+
+    def run_annotate(self):
+        try:
+            directory = os.path.dirname(os.path.abspath(__file__))
+            annotate_script = os.path.join(directory, "annotate_dataset.py")
+            if not os.path.exists(annotate_script):
+                log_error(f"annotate_dataset.py not found at {annotate_script}")
+                return
+            subprocess.Popen(["python", annotate_script], cwd=directory)
+            print("Started annotate_dataset.py")
+        except Exception as e:
+            log_error(f"Error starting annotate_dataset.py: {e}")
 
     def close(self):
         if self.root and self.root.winfo_exists():
